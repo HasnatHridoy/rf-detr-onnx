@@ -1,3 +1,4 @@
+
 # This file contains code licensed under the Apache License, Version 2.0.
 # See NOTICE for more details.
 
@@ -7,6 +8,30 @@ import onnxruntime as ort
 import numpy as np
 import os
 from PIL import Image, ImageDraw, ImageFont
+
+
+# Fixed professional colors (COCO-style)
+COLOR_PALETTE = [
+    (220, 20, 60),    # Crimson Red
+    (0, 128, 0),      # Green
+    (0, 0, 255),      # Blue
+    (255, 140, 0),    # Dark Orange
+    (255, 215, 0),    # Gold
+    (138, 43, 226),   # Blue Violet
+    (0, 206, 209),    # Dark Turquoise
+    (255, 105, 180),  # Hot Pink
+    (70, 130, 180),   # Steel Blue
+    (46, 139, 87),    # Sea Green
+    (210, 105, 30),   # Chocolate
+    (123, 104, 238),  # Medium Slate Blue
+    (199, 21, 133),   # Medium Violet Red
+]
+
+classes = ['None','Boots','C-worker','Cone','Construction-hat','Crane',
+           'Excavator','Gloves','Goggles','Ladder','Mask','Truck','Vest']
+
+CLASS_COLORS = {cls: COLOR_PALETTE[i % len(COLOR_PALETTE)] for i, cls in enumerate(classes)}
+
 
 def open_image(path):
     # Check if the path is a URL (starts with 'http://' or 'https://')
@@ -103,7 +128,7 @@ class RTDETR_ONNX:
 
         return scores, labels, boxes
 
-    def run_inference(self, image_path, confidence_threshold=0.5, max_number_boxes=100):
+    def run_inference(self, image_path, confidence_threshold=0.2, max_number_boxes=100):
         """Run the model inference and return the raw outputs."""
         
         # Load the image
@@ -123,26 +148,33 @@ class RTDETR_ONNX:
         return self._post_process(outputs, origin_height, origin_width, confidence_threshold, max_number_boxes)
     
     
-    def save_detections(self, image_path, boxes, labels, save_image_path):
-        """Draw bounding boxes and class labels on the original image."""
-        # Load the original image
+    def save_detections(self, image_path, boxes, labels, save_image_path, scores=None):
+        """Draw bounding boxes and class labels with colored backgrounds."""
         image = open_image(image_path).convert('RGB')
-        
         draw = ImageDraw.Draw(image)
+        font = ImageFont.load_default()
 
-        # Loop over the boxes
         for i, box in enumerate(boxes.astype(int)):
-            
-            # Draw the rectangle (box) on the image
-            draw.rectangle(box.tolist(), outline="green", width=4)
+            cls_id = labels[i]
+            cls_name = classes[cls_id] if cls_id < len(classes) else str(cls_id)
+            color = CLASS_COLORS.get(cls_name, (0, 255, 0))
 
-            # Using default font
-            font = ImageFont.load_default()
+            # Draw bounding box
+            draw.rectangle(box.tolist(), outline=color, width=3)
 
-            # Position the text inside the rectangle
-            text_x = box[0] + 10  # Left margin for text
-            text_y = box[1] + 10  # Top margin for text
-            draw.text((text_x, text_y), str(labels[i]), fill="red", font=font)
+            # Label text
+            label = f"{cls_name}"
+            if scores is not None:
+                label += f" {scores[i]:.2f}"
 
-        # Save the image with the rectangle and text
+            # Get text size
+            tw, th = draw.textbbox((0, 0), label, font=font)[2:]
+            tx, ty = box[0], max(0, box[1] - th - 4)
+
+            # Background rectangle
+            draw.rectangle([tx, ty, tx + tw + 4, ty + th + 4], fill=color)
+
+            # Put text
+            draw.text((tx + 2, ty + 2), label, fill="white", font=font)
+
         image.save(save_image_path)
